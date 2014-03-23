@@ -91,10 +91,11 @@ public class OakRepositoryIT extends CommonTests {
                 mavenBundle("org.apache.sling", "org.apache.sling.jcr.classloader", "3.1.12"),
                 mavenBundle("org.apache.sling", "org.apache.sling.jcr.contentloader", "2.1.2"),
                 mavenBundle("org.apache.sling", "org.apache.sling.engine", "2.2.6"),
+                mavenBundle("org.apache.sling", "org.apache.sling.serviceusermapper", "1.0.0"),
 
                 mavenBundle("org.apache.sling", "org.apache.sling.jcr.jcr-wrapper", "2.0.0"),
-                mavenBundle("org.apache.sling", "org.apache.sling.jcr.api", "2.1.0"),
-                mavenBundle("org.apache.sling", "org.apache.sling.jcr.base", "2.1.2"),
+                mavenBundle("org.apache.sling", "org.apache.sling.jcr.api", "2.2.0"),
+                mavenBundle("org.apache.sling", "org.apache.sling.jcr.base", "2.2.2"),
                 
                 // Oak
                 mavenBundle("org.apache.sling", "org.apache.sling.jcr.oak.server", "0.0.1-SNAPSHOT"),

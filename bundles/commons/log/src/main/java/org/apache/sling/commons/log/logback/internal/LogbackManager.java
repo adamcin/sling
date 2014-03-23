@@ -34,9 +34,9 @@ import ch.qos.logback.core.status.OnConsoleStatusListener;
 import ch.qos.logback.core.status.StatusListener;
 import ch.qos.logback.core.status.StatusListenerAsList;
 import ch.qos.logback.core.status.StatusUtil;
-import ch.qos.logback.core.util.StatusPrinter;
 import org.apache.sling.commons.log.logback.internal.AppenderTracker.AppenderInfo;
 import org.apache.sling.commons.log.logback.internal.util.SlingRollingFileAppender;
+import org.apache.sling.commons.log.logback.internal.util.SlingStatusPrinter;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
@@ -145,6 +145,7 @@ public class LogbackManager extends LoggerContextAwareBase {
         resetListeners.add(configSourceTracker);
         resetListeners.add(filterTracker);
         resetListeners.add(turboFilterTracker);
+        resetListeners.add(new RootLoggerListener()); //Should be invoked at last
 
         //Record trackers for shutdown later
         serviceTrackers.add(appenderTracker);
@@ -263,6 +264,7 @@ public class LogbackManager extends LoggerContextAwareBase {
 
     public void fireResetCompleteListeners(){
         for(LogbackResetListener listener : resetListeners){
+            addInfo("Firing reset listener - onResetComplete "+listener.getClass());
             listener.onResetComplete(getLoggerContext());
         }
     }
@@ -304,6 +306,7 @@ public class LogbackManager extends LoggerContextAwareBase {
     }
 
     private void configure(ConfiguratorCallback cb) {
+        long startTime = System.currentTimeMillis();
         StatusListener statusListener = new StatusListenerAsList();
         if (debug) {
             statusListener = new OnConsoleStatusListener();
@@ -334,7 +337,7 @@ public class LogbackManager extends LoggerContextAwareBase {
                 cb.fallbackConfiguration(eventList, createConfigurator(), statusListener);
             }
             getStatusManager().remove(statusListener);
-            StatusPrinter.printInCaseOfErrorsOrWarnings(getLoggerContext(), resetStartTime);
+            SlingStatusPrinter.printInCaseOfErrorsOrWarnings(getLoggerContext(), resetStartTime, startTime, success);
         }
     }
 
@@ -459,21 +462,23 @@ public class LogbackManager extends LoggerContextAwareBase {
                 + " listeners");
 
             context.setPackagingDataEnabled(logConfigManager.isPackagingDataEnabled());
+            context.setMaxCallerDataDepth(logConfigManager.getMaxCallerDataDepth());
 
             // Attach a console appender to handle logging untill we configure
-            // one. This would be removed in LogConfigManager.reset
+            // one. This would be removed in RootLoggerListener.reset
             final Logger rootLogger = getLoggerContext().getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
             rootLogger.setLevel(Level.INFO);
             rootLogger.addAppender(logConfigManager.getDefaultAppender());
-
 
             // Now record the time of reset with a default appender attached to
             // root logger. We also add a milli second extra to account for logs which would have
             // got fired in same duration
             resetStartTime = System.currentTimeMillis() + TimeUnit.MILLISECONDS.toMillis(1);
+            addInfo("Registered a default console based logger");
 
             context.putObject(LogbackManager.class.getName(), LogbackManager.this);
             for (LogbackResetListener l : resetListeners) {
+                addInfo("Firing reset listener - onResetStart "+l.getClass());
                 l.onResetStart(context);
             }
         }
@@ -484,6 +489,31 @@ public class LogbackManager extends LoggerContextAwareBase {
         public void onLevelChange(Logger logger, Level level) {
         }
 
+    }
+
+    private class RootLoggerListener implements LogbackResetListener {
+
+        @Override
+        public void onResetStart(LoggerContext context) {
+
+        }
+
+        @Override
+        public void onResetComplete(LoggerContext context) {
+            // Remove the default console appender that we attached at start of
+            // reset
+            ch.qos.logback.classic.Logger root = context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+            Iterator<Appender<ILoggingEvent>> appenderItr = root.iteratorForAppenders();
+
+            //Root logger has at least 1 appender associated with it. Remove the one added by us
+            if (appenderItr.hasNext()) {
+                root.detachAppender(LogConfigManager.DEFAULT_CONSOLE_APPENDER_NAME);
+                addInfo("Found appender attached with root logger. Detaching the default console based logger");
+            } else {
+                addInfo("No appender was found to be associated with root logger. Registering " +
+                        "a Console based logger");
+            }
+        }
     }
 
     // ~--------------------------------Configurator Base

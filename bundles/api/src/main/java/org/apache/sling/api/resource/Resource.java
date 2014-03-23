@@ -29,6 +29,9 @@ import aQute.bnd.annotation.ProviderType;
  * other types. A JCR based resource might support adapting to the JCR Node on
  * which the resource is based.
  * <p>
+ * All implementations must support returning a value map from
+ * {@link #getValueMap()}, even if the map is empty.
+ * <p>
  * Implementor's Note: It is recommended to not implement this interface
  * directly. Rather consider either extending from {@link AbstractResource} or
  * {@link ResourceWrapper}. This will make sure your implementation will not be
@@ -131,7 +134,7 @@ public interface Resource extends Adaptable {
 
     /**
      * Checks if the resource has any child resources.
-     * 
+     *
      * @return <code>true</code> if the resource has any child resources
      * @since 2.4.4
      */
@@ -166,4 +169,12 @@ public interface Resource extends Adaptable {
      * retrieved.
      */
     ResourceResolver getResourceResolver();
+
+    /**
+     * Returns a value map for this resource.
+     * The value map allows to read the properties of the resource.
+     * @return A value map
+     * @since 2.5
+     */
+    ValueMap getValueMap();
 }

@@ -20,7 +20,6 @@ import javax.inject.Inject;
 
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.models.annotations.Model;
-import org.apache.sling.models.testmodels.classes.ChildModel;
 
 @Model(adaptables = Resource.class)
 public interface ParentModel {

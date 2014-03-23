@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ch.qos.logback.classic.ClassicConstants;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
@@ -59,6 +60,8 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
 
     public static final String LOG_FILE_SIZE = "org.apache.sling.commons.log.file.size";
 
+    public static final String LOG_FILE_BUFFERED = "org.apache.sling.commons.log.file.buffered";
+
     public static final String LOG_PATTERN = "org.apache.sling.commons.log.pattern";
 
     public static final String LOG_PATTERN_DEFAULT = "%d{dd.MM.yyyy HH:mm:ss.SSS} *%level* [%thread] %logger %msg%n";
@@ -68,6 +71,8 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
     public static final String LOG_ADDITIV = "org.apache.sling.commons.log.additiv";
 
     public static final String LOG_PACKAGING_DATA = "org.apache.sling.commons.log.packagingDataEnabled";
+
+    public static final String LOG_MAX_CLALLER_DEPTH = "org.apache.sling.commons.log.maxCallerDataDepth";
 
     public static final String LOG_LEVEL_DEFAULT = "INFO";
 
@@ -81,7 +86,7 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
 
     public static final String FACTORY_PID_CONFIGS = PID + ".factory.config";
 
-    private static final String DEFAULT_CONSOLE_APPENDER_NAME = "org.apache.sling.commons.log.CONSOLE";
+    public static final String DEFAULT_CONSOLE_APPENDER_NAME = "org.apache.sling.commons.log.CONSOLE";
 
     private final LoggerContext loggerContext;
 
@@ -120,6 +125,8 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
     private File logbackConfigFile;
 
     private boolean packagingDataEnabled;
+
+    private int maxCallerDataDepth;
 
     /**
      * Logs a message an optional stack trace to error output. This method is
@@ -290,13 +297,11 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
                 if (appender != null) {
                     logger.setAdditive(config.isAdditive());
                     logger.addAppender(appender);
+                    contextUtil.addInfo("Registering appender "+appender.getName()+ "("+appender.getClass()+
+                            ") with logger "+logger.getName());
                 }
             }
         }
-
-        // Remove the default console appender that we attached at start of
-        // reset
-        context.getLogger(Logger.ROOT_LOGGER_NAME).detachAppender(DEFAULT_CONSOLE_APPENDER_NAME);
     }
 
 
@@ -415,7 +420,10 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
                 fileSize = fileSizeProp.toString();
             }
 
-            LogWriter newWriter = new LogWriter(pid, getAppnderName(logFileName), fileNum, fileSize, logFileName);
+            boolean bufferedLogging = Util.toBoolean(configuration.get(LogConfigManager.LOG_FILE_BUFFERED), false);
+
+            LogWriter newWriter = new LogWriter(pid, getAppnderName(logFileName), fileNum,
+                    fileSize, logFileName, bufferedLogging);
             if (oldWriter != null) {
                 writerByFileName.remove(oldWriter.getFileName());
             }
@@ -566,6 +574,10 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
         return packagingDataEnabled;
     }
 
+    public int getMaxCallerDataDepth() {
+        return maxCallerDataDepth;
+    }
+
     // ---------- ManagedService interface -------------------------------------
 
     private Dictionary<String, String> getBundleConfiguration(BundleContext bundleContext) {
@@ -616,6 +628,9 @@ public class LogConfigManager implements LogbackResetListener, LogConfig.LogWrit
             //Defaults to false i.e. disabled in OSGi env
             packagingDataEnabled = false;
         }
+
+        maxCallerDataDepth = Util.toInteger(configuration.get(LOG_MAX_CLALLER_DEPTH),
+                ClassicConstants.DEFAULT_MAX_CALLEDER_DATA_DEPTH);
     }
 
     // ---------- Internal helpers ---------------------------------------------

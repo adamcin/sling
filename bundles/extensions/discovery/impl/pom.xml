@@ -29,7 +29,7 @@
 
     <artifactId>org.apache.sling.discovery.impl</artifactId>
     <packaging>bundle</packaging>
-    <version>1.0.3-SNAPSHOT</version>
+    <version>1.0.5-SNAPSHOT</version>
 
     <name>Apache Sling Resource-Based Discovery Service</name>
     <description>Implementation of Apache Sling Discovery based on Sling Resource providing a ClusterView through resource-clustering (eg jackrabbit clustering) and a TopologyView through HTTP POST heartbeats announcing sub-topologies to each other.</description>
@@ -46,7 +46,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                  <artifactId>maven-surefire-plugin</artifactId>
 	  	 <configuration>
-       		 	<redirectTestOutputToFile>true</redirectTestOutputToFile>
+       		 	<redirectTestOutputToFile>false</redirectTestOutputToFile>
         	 </configuration>
             </plugin>
             <plugin>
@@ -79,6 +79,7 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+	        <version>1.6.1</version>
         </dependency>
         <dependency>
             <groupId>org.osgi</groupId>
@@ -142,6 +143,12 @@
 			<version>3.0.0</version>
             <scope>provided</scope>
 		</dependency>
+	    <dependency>
+	      <groupId>org.eclipse.jetty</groupId>
+	      <artifactId>jetty-servlet</artifactId>
+	      <version>8.1.2.v20120308</version>
+	      <scope>test</scope>
+	    </dependency>
 		<dependency>
 			<groupId>javax.servlet</groupId>
 			<artifactId>servlet-api</artifactId>
@@ -202,7 +209,39 @@
         	<artifactId>org.apache.sling.commons.testing</artifactId>
         	<version>2.0.14</version>
         	<scope>test</scope>
+            <exclusions>
+                <!-- slf4j simple implementation logs INFO + higher to stdout (we don't want that behaviour) -->
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-simple</artifactId>
+                </exclusion>
+                <!--  also excluding jcl-over-slf4j as we need a newer vesion of this which is compatible with slf4j 1.6 -->
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>jcl-over-slf4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
+        
+        <!-- using log4j under slf4j to allow fine-grained logging config (see src/test/resources/log4j.properties) -->
+        <dependency>
+        	<groupId>org.slf4j</groupId>
+        	<artifactId>slf4j-log4j12</artifactId>
+        	<version>1.7.5</version>
+        	<scope>test</scope>
+        </dependency>
+        <dependency>
+        	<groupId>org.slf4j</groupId>
+        	<artifactId>jcl-over-slf4j</artifactId>
+        	<version>1.7.5</version>
+        	<scope>test</scope>
+        </dependency>
+	    <dependency>
+			<groupId>log4j</groupId>
+			<artifactId>log4j</artifactId>
+			<version>1.2.13</version>
+			<scope>test</scope>
+	    </dependency>
         <dependency>
         	<groupId>org.apache.sling</groupId>
         	<artifactId>org.apache.sling.commons.threads</artifactId>

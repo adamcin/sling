@@ -28,7 +28,7 @@
 
     <artifactId>org.apache.sling.jcr.registration</artifactId>
     <packaging>bundle</packaging>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.1-SNAPSHOT</version>
 
     <name>Apache Sling JCR Repository Registration</name>
     <description>

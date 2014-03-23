@@ -25,14 +25,12 @@ import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceMetadata;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.apache.sling.api.resource.ValueMap;
+import org.apache.sling.api.wrappers.DeepReadValueMapDecorator;
 
 /**
  * {@inheritDoc}
  */
 public class MergedResource extends AbstractResource {
-
-    private static final String MD_FLAG = "sling.mappedResource";
-    private static final String MD_RESOURCES = "sling.mappedResources";
 
     /** The resource resolver. */
     private final ResourceResolver resolver;
@@ -43,11 +41,11 @@ public class MergedResource extends AbstractResource {
     /** Resource type. */
     private final String resourceType;
 
-    /** Resource metadata. */
+    /** Resource meta data. */
     private final ResourceMetadata metadata = new ResourceMetadata();
 
     /** Cache value map. */
-    private ValueMap properties;
+    private final ValueMap properties;
 
     /**
      * Constructor
@@ -64,16 +62,16 @@ public class MergedResource extends AbstractResource {
                    final List<ValueMap> valueMaps) {
         this.resolver = resolver;
         this.path = (relativePath.length() == 0 ? mergeRootPath : mergeRootPath + "/" + relativePath);
-        this.properties = new MergedValueMap(valueMaps);
+        this.properties = new DeepReadValueMapDecorator(this, new MergedValueMap(valueMaps));
         this.resourceType = this.properties.get(ResourceResolver.PROPERTY_RESOURCE_TYPE, (relativePath.length() == 0 ? "/" : relativePath));
-        metadata.put(MD_FLAG, true);
+        metadata.put(MergedResourceConstants.METADATA_FLAG, true);
         final String[] resourcePaths = new String[mappedResources.size()];
         int i = 0;
         for(final Resource rsrc : mappedResources) {
             resourcePaths[i] = rsrc.getPath();
             i++;
         }
-        metadata.put(MD_RESOURCES, resourcePaths);
+        metadata.put(MergedResourceConstants.METADATA_RESOURCES, resourcePaths);
     }
 
     /**
@@ -118,11 +116,10 @@ public class MergedResource extends AbstractResource {
      */
     @Override
     @SuppressWarnings("unchecked")
-    public <AdapterType> AdapterType adaptTo(Class<AdapterType> type) {
+    public <AdapterType> AdapterType adaptTo(final Class<AdapterType> type) {
         if (type == ValueMap.class) {
             return (AdapterType) this.properties;
         }
-
         return super.adaptTo(type);
     }
 
@@ -161,6 +158,6 @@ public class MergedResource extends AbstractResource {
     @Override
     public String toString() {
         return "MergedResource [path=" + this.path +
-               ", resources=" + this.metadata.get(MD_RESOURCES) + "]";
+               ", resources=" + this.metadata.get(MergedResourceConstants.METADATA_RESOURCES) + "]";
     }
 }

@@ -22,17 +22,28 @@ import org.apache.sling.api.request.RequestParameter;
 
 abstract class AbstractRequestParameter implements RequestParameter {
 
+    private String name;
+
     private String encoding;
 
-    protected AbstractRequestParameter(String encoding) {
+    protected AbstractRequestParameter(String name, String encoding) {
+        this.name = name;
         this.encoding = encoding;
+    }
+
+    void setName(String name) {
+        this.name = name;
+    }
+
+    public String getName() {
+        return this.name;
     }
 
     void setEncoding(String encoding) {
         this.encoding = encoding;
     }
 
-    String getEncoding() {
+    public String getEncoding() {
         return this.encoding;
     }
 

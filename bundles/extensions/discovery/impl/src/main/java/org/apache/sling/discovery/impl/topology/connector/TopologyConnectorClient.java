@@ -21,6 +21,7 @@ package org.apache.sling.discovery.impl.topology.connector;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URL;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.UUID;
 import java.util.zip.GZIPOutputStream;
@@ -40,6 +41,7 @@ import org.apache.commons.httpclient.methods.PutMethod;
 import org.apache.commons.httpclient.methods.StringRequestEntity;
 import org.apache.commons.httpclient.params.HttpMethodParams;
 import org.apache.sling.commons.json.JSONException;
+import org.apache.sling.discovery.ClusterView;
 import org.apache.sling.discovery.InstanceDescription;
 import org.apache.sling.discovery.impl.Config;
 import org.apache.sling.discovery.impl.cluster.ClusterViewService;
@@ -76,6 +78,9 @@ public class TopologyConnectorClient implements
     /** the last inherited announcement **/
     private Announcement lastInheritedAnnouncement;
 
+    /** the time when the last announcement was inherited - for webconsole use only **/
+    private long lastPingedAt;
+    
     /** the information about this server **/
     private final String serverInfo;
     
@@ -99,6 +104,9 @@ public class TopologyConnectorClient implements
     /** value of Content-Encoding of the last repsonse **/
     private String lastResponseEncoding;
 
+    /** SLING-3382: unix-time at which point the backoff-period ends and pings can be sent again **/
+    private long backoffPeriodEnd = -1;
+    
     TopologyConnectorClient(final ClusterViewService clusterViewService,
             final AnnouncementRegistry announcementRegistry, final Config config,
             final URL connectorUrl, final String serverInfo) {
@@ -126,11 +134,21 @@ public class TopologyConnectorClient implements
     }
 
     /** ping the server and pass the announcements between the two **/
-    void ping() {
+    void ping(final boolean force) {
     	if (autoStopped) {
     		// then we suppress any further pings!
     		logger.debug("ping: autoStopped=true, hence suppressing any further pings.");
     		return;
+    	}
+    	if (force) {
+    	    backoffPeriodEnd = -1;
+    	} else if (backoffPeriodEnd>0) {
+    	    if (System.currentTimeMillis()<backoffPeriodEnd) {
+    	        logger.debug("ping: not issueing a heartbeat due to backoff instruction from peer.");
+    	        return;
+    	    } else {
+                logger.debug("ping: backoff period ended, issuing another ping now.");
+    	    }
     	}
         final String uri = connectorUrl.toString()+"."+clusterViewService.getSlingId()+".json";
     	if (logger.isDebugEnabled()) {
@@ -138,6 +156,7 @@ public class TopologyConnectorClient implements
     	}
         HttpClient httpClient = new HttpClient();
         final PutMethod method = new PutMethod(uri);
+        Announcement resultingAnnouncement = null;
         try {
             String userInfo = connectorUrl.getUserInfo();
             if (userInfo != null) {
@@ -150,9 +169,14 @@ public class TopologyConnectorClient implements
             Announcement topologyAnnouncement = new Announcement(
                     clusterViewService.getSlingId());
             topologyAnnouncement.setServerInfo(serverInfo);
-            topologyAnnouncement.setLocalCluster(clusterViewService
-                    .getClusterView());
-            announcementRegistry.addAllExcept(topologyAnnouncement, new AnnouncementFilter() {
+            final ClusterView clusterView = clusterViewService
+                    .getClusterView();
+            topologyAnnouncement.setLocalCluster(clusterView);
+            if (force) {
+                logger.debug("ping: sending a resetBackoff");
+                topologyAnnouncement.setResetBackoff(true);
+            }
+            announcementRegistry.addAllExcept(topologyAnnouncement, clusterView, new AnnouncementFilter() {
                 
                 public boolean accept(final String receivingSlingId, final Announcement announcement) {
                     // filter out announcements that are of old cluster instances
@@ -224,6 +248,17 @@ public class TopologyConnectorClient implements
                 if (responseBody!=null && responseBody.length()>0) {
                     Announcement inheritedAnnouncement = Announcement
                             .fromJSON(responseBody);
+                    final long backoffInterval = inheritedAnnouncement.getBackoffInterval();
+                    if (backoffInterval>0) {
+                        // then reset the backoffPeriodEnd:
+                        
+                        /* minus 1 sec to avoid slipping the interval by a few millis */
+                        this.backoffPeriodEnd = System.currentTimeMillis() + (1000 * backoffInterval) - 1000;
+                        logger.debug("ping: servlet instructed to backoff: backoffInterval="+backoffInterval+", resulting in period end of "+new Date(backoffPeriodEnd));
+                    } else {
+                        logger.debug("ping: servlet did not instruct any backoff-ing at this stage");
+                        this.backoffPeriodEnd = -1;
+                    }
                     if (inheritedAnnouncement.isLoop()) {
                     	if (logger.isDebugEnabled()) {
 	                        logger.debug("ping: connector response indicated a loop detected. not registering this announcement from "+
@@ -239,33 +274,29 @@ public class TopologyConnectorClient implements
                     	}
                     } else {
                         inheritedAnnouncement.setInherited(true);
-                        if (!announcementRegistry
-                                .registerAnnouncement(inheritedAnnouncement)) {
+                        if (announcementRegistry
+                                .registerAnnouncement(inheritedAnnouncement)==-1) {
                         	if (logger.isDebugEnabled()) {
 	                            logger.debug("ping: connector response is from an instance which I already see in my topology"
 	                                    + inheritedAnnouncement);
                         	}
-                            lastInheritedAnnouncement = null;
                             statusDetails = "receiving side is seeing me via another path (connector or cluster) already (loop)";
                             return;
                         }
                     }
-                    lastInheritedAnnouncement = inheritedAnnouncement;
+                    resultingAnnouncement = inheritedAnnouncement;
                     statusDetails = null;
                 } else {
-                    lastInheritedAnnouncement = null;
                     statusDetails = "no response body received";
                 }
             } else {
-                lastInheritedAnnouncement = null;
                 statusDetails = "got HTTP Status-Code: "+lastStatusCode;
             }
         	// SLING-2882 : reset suppressPingWarnings_ flag in success case
     		suppressPingWarnings_ = false;
         } catch (URIException e) {
             logger.warn("ping: Got URIException: " + e + ", uri=" + uri);
-            lastInheritedAnnouncement = null;
-            statusDetails = "got URIException: "+e;
+            statusDetails = e.toString();
         } catch (IOException e) {
         	// SLING-2882 : set/check the suppressPingWarnings_ flag
         	if (suppressPingWarnings_) {
@@ -276,18 +307,17 @@ public class TopologyConnectorClient implements
         		suppressPingWarnings_ = true;
     			logger.warn("ping: got IOException [suppressing further warns]: " + e + ", uri=" + uri);
         	}
-            lastInheritedAnnouncement = null;
-            statusDetails = "got IOException: "+e;
+            statusDetails = e.toString();
         } catch (JSONException e) {
             logger.warn("ping: got JSONException: " + e);
-            lastInheritedAnnouncement = null;
-            statusDetails = "got JSONException: "+e;
+            statusDetails = e.toString();
         } catch (RuntimeException re) {
             logger.warn("ping: got RuntimeException: " + re, re);
-            lastInheritedAnnouncement = null;
-            statusDetails = "got RuntimeException: "+re;
+            statusDetails = re.toString();
         } finally {
             method.releaseConnection();
+            lastInheritedAnnouncement = resultingAnnouncement;
+            lastPingedAt = System.currentTimeMillis();
         }
     }
 
@@ -317,7 +347,7 @@ public class TopologyConnectorClient implements
         if (lastInheritedAnnouncement == null) {
             return false;
         } else {
-            return !lastInheritedAnnouncement.hasExpired(config);
+            return announcementRegistry.hasActiveAnnouncement(lastInheritedAnnouncement.getOwnerId());
         }
     }
     
@@ -328,11 +358,31 @@ public class TopologyConnectorClient implements
         if (lastInheritedAnnouncement == null) {
             return statusDetails;
         } else {
-            if (!lastInheritedAnnouncement.hasExpired(config)) {
+            if (announcementRegistry.hasActiveAnnouncement(lastInheritedAnnouncement.getOwnerId())) {
+                // still active - so no status details
                 return null;
             } else {
-                return "received announcement has expired (it was created "+lastInheritedAnnouncement.getCreated()+") - consider increasing heartbeat timeout";
+                return "received announcement has expired (it was last renewed "+new Date(lastPingedAt)+") - consider increasing heartbeat timeout";
             }
+        }
+    }
+    
+    public long getLastHeartbeatSent() {
+        return lastPingedAt;
+    }
+    
+    public int getNextHeartbeatDue() {
+        final long absDue;
+        if (backoffPeriodEnd>0) {
+            absDue = backoffPeriodEnd;
+        } else {
+            absDue = lastPingedAt + 1000*config.getHeartbeatInterval();
+        }
+        final int relDue = (int) ((absDue - System.currentTimeMillis()) / 1000);
+        if (relDue<0) {
+            return -1;
+        } else {
+            return relDue;
         }
     }
     

@@ -1,6 +1,8 @@
 package org.apache.sling.extensions.leakdetector.internal;
 
 import java.io.PrintWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
@@ -29,7 +31,10 @@ import org.slf4j.LoggerFactory;
 
 public class LeakDetector implements Runnable, BundleActivator {
     /**
-     * Set of PhantomReferences such that PhantomReference itself is not GC
+     * Set of PhantomReferences such that PhantomReference itself is not GC.
+     * While analyzing the Heap Dump it might appear that GC roots of such classloaders (suspected)
+     * points to LeakDetector. This happens because they are held here through PhantomReference
+     * and there normal GC has not been done. So consider that as false positive
      */
     private final Set<Reference<?>> refs = Collections.synchronizedSet(new HashSet<Reference<?>>());
 
@@ -124,7 +129,10 @@ public class LeakDetector implements Runnable, BundleActivator {
 
         log.info("Shutting down reference collector for Classloader LeakDetector");
         //Drain out the queue
-        while (queue.poll() != null);
+        BundleReference ref = null;
+        while ((ref = (BundleReference)queue.poll()) != null){
+            removeBundle(ref);
+        }
     }
 
     private void removeBundle(BundleReference ref) {
@@ -134,6 +142,7 @@ public class LeakDetector implements Runnable, BundleActivator {
             //bi cannot be null
             bi.decrementUsageCount(ref);
             refs.remove(ref);
+            ref.clear();
         }
 
         log.info("Detected garbage collection of bundle [{}] - Classloader [{}]", bi, ref.classloaderInfo);
@@ -189,6 +198,27 @@ public class LeakDetector implements Runnable, BundleActivator {
                 }
             }
         }
+        pw.println();
+
+        addHelp(pw);
+    }
+
+    private static void addHelp(PrintWriter pw){
+        RuntimeMXBean bean = ManagementFactory.getRuntimeMXBean();
+        List<String> argList = bean.getInputArguments();
+
+        boolean containsRequiredArgs = argList.contains("-XX:+UseConcMarkSweepGC")
+                && argList.contains("-XX:+CMSClassUnloadingEnabled");
+
+        if(!containsRequiredArgs){
+            pw.println("Required VM Options Missing");
+            pw.println("===========================");
+            pw.println("Leak detector relies on garbage collection of classloaders. By default");
+            pw.println("the classloaders are not garbage collected. To enable garbage collection of");
+            pw.println("classloader start the JVM with following options ");
+            pw.println("");
+            pw.println("    -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled");
+        }
     }
 
     //~---------------------------------------<Data Model>
@@ -240,6 +270,12 @@ public class LeakDetector implements Runnable, BundleActivator {
 
     private static class ClassloaderInfo implements Comparable<ClassloaderInfo> {
         final Long creationTime = System.currentTimeMillis();
+        /**
+         * The hashCode might collide for two different classloaders but then
+         * we cannot keep a hard reference to Classloader reference. So at best
+         * we keep the systemHashCode and *assume* it is unqiue at least wrt
+         * classloader instances
+         */
         final long systemHashCode;
 
         private ClassloaderInfo(ClassLoader cl) {

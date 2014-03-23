@@ -39,6 +39,7 @@ import org.apache.felix.scr.annotations.Deactivate;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.Service;
 import org.apache.sling.commons.json.JSONException;
+import org.apache.sling.discovery.ClusterView;
 import org.apache.sling.discovery.impl.Config;
 import org.apache.sling.discovery.impl.cluster.ClusterViewService;
 import org.apache.sling.discovery.impl.common.heartbeat.HeartbeatHandler;
@@ -241,6 +242,7 @@ public class TopologyConnectorServlet extends HttpServlet {
             final Announcement replyAnnouncement = new Announcement(
                     slingId);
 
+            long backoffInterval = -1;
             if (!incomingTopologyAnnouncement.isCorrectVersion()) {
                 logger.warn("doPost: rejecting an announcement from an incompatible connector protocol version: "
                         + incomingTopologyAnnouncement);
@@ -254,6 +256,7 @@ public class TopologyConnectorServlet extends HttpServlet {
             	}
                 // marking as 'loop'
                 replyAnnouncement.setLoop(true);
+                backoffInterval = config.getBackoffStandbyInterval();
             } else if (clusterViewService.containsAny(incomingTopologyAnnouncement
                     .listInstances())) {
             	if (logger.isDebugEnabled()) {
@@ -262,30 +265,45 @@ public class TopologyConnectorServlet extends HttpServlet {
             	}
                 // marking as 'loop'
                 replyAnnouncement.setLoop(true);
-            } else if (!announcementRegistry
-                    .registerAnnouncement(incomingTopologyAnnouncement)) {
-            	if (logger.isDebugEnabled()) {
-	                logger.debug("doPost: rejecting an announcement from an instance that I already see in my topology: "
-	                        + incomingTopologyAnnouncement);
-            	}
-                // marking as 'loop'
-                replyAnnouncement.setLoop(true);
+                backoffInterval = config.getBackoffStandbyInterval();
             } else {
-                // normal, successful case: replying with the part of the topology which this instance sees
-                replyAnnouncement.setLocalCluster(clusterViewService
-                        .getClusterView());
-                announcementRegistry.addAllExcept(replyAnnouncement,
-                        new AnnouncementFilter() {
-
-                            public boolean accept(final String receivingSlingId, Announcement announcement) {
-                                if (announcement.getPrimaryKey().equals(
-                                        incomingTopologyAnnouncement
-                                                .getPrimaryKey())) {
-                                    return false;
+                backoffInterval = announcementRegistry
+                        .registerAnnouncement(incomingTopologyAnnouncement);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("doPost: backoffInterval after registration: "+backoffInterval);
+                }
+                if (backoffInterval==-1) {
+                	if (logger.isDebugEnabled()) {
+    	                logger.debug("doPost: rejecting an announcement from an instance that I already see in my topology: "
+    	                        + incomingTopologyAnnouncement);
+                	}
+                    // marking as 'loop'
+                    replyAnnouncement.setLoop(true);
+                    backoffInterval = config.getBackoffStandbyInterval();
+                } else {
+                    // normal, successful case: replying with the part of the topology which this instance sees
+                    final ClusterView clusterView = clusterViewService
+                            .getClusterView();
+                    replyAnnouncement.setLocalCluster(clusterView);
+                    announcementRegistry.addAllExcept(replyAnnouncement, clusterView,
+                            new AnnouncementFilter() {
+    
+                                public boolean accept(final String receivingSlingId, Announcement announcement) {
+                                    if (announcement.getPrimaryKey().equals(
+                                            incomingTopologyAnnouncement
+                                                    .getPrimaryKey())) {
+                                        return false;
+                                    }
+                                    return true;
                                 }
-                                return true;
-                            }
-                        });
+                            });
+                }
+            }
+            if (backoffInterval>0) {
+                replyAnnouncement.setBackoffInterval(backoffInterval);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("doPost: backoffInterval for client set to "+replyAnnouncement.getBackoffInterval());
+                }
             }
             final String p = requestValidator.encodeMessage(replyAnnouncement.asJSON());
             requestValidator.trustMessage(response, request, p);

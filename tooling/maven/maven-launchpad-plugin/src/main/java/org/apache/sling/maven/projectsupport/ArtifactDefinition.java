@@ -18,6 +18,10 @@ package org.apache.sling.maven.projectsupport;
 
 import static org.apache.sling.maven.projectsupport.BundleListUtils.nodeValue;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.apache.maven.model.Dependency;
 import org.apache.sling.maven.projectsupport.bundlelist.v1_0_0.Bundle;
 import org.codehaus.plexus.util.StringUtils;
@@ -49,6 +53,8 @@ public class ArtifactDefinition {
     /** The artifact run modes */
     private String runModes;
 
+    private ArtifactDefinition[] bundles;
+
     public ArtifactDefinition() {
     }
 
@@ -62,14 +68,22 @@ public class ArtifactDefinition {
         this.runModes = bundle.getRunModes();
     }
 
-    public ArtifactDefinition(Xpp3Dom config) {
-        this.groupId = nodeValue(config, "groupId", null);
-        this.artifactId = nodeValue(config, "artifactId", null);
-        this.type = nodeValue(config, "type", null);
-        this.version = nodeValue(config, "version", null);
-        this.classifier = nodeValue(config, "classifier", null);
-        this.startLevel = nodeValue(config, "startLevel", 0);
-        this.runModes = nodeValue(config, "runModes", null);
+    public ArtifactDefinition(final Xpp3Dom config) {
+        if ( config.getChild("bundles") != null ) {
+            final Xpp3Dom[] children = config.getChild("bundles").getChildren("bundle");
+            this.bundles = new ArtifactDefinition[children.length];
+            for(int i=0; i<this.bundles.length; i++) {
+                this.bundles[i] = new ArtifactDefinition(children[i]);
+            }
+        } else {
+            this.groupId = nodeValue(config, "groupId", null);
+            this.artifactId = nodeValue(config, "artifactId", null);
+            this.type = nodeValue(config, "type", null);
+            this.version = nodeValue(config, "version", null);
+            this.classifier = nodeValue(config, "classifier", null);
+            this.startLevel = nodeValue(config, "startLevel", 0);
+            this.runModes = nodeValue(config, "runModes", null);
+        }
     }
 
     public String getArtifactId() {
@@ -124,12 +138,20 @@ public class ArtifactDefinition {
         this.version = version;
     }
 
+    public ArtifactDefinition[] getContainedArtifacts() {
+        return this.bundles;
+    }
+
     @Override
     public String toString() {
-        return "ArtifactDefinition [artifactId=" + artifactId + ", classifier="
-                + classifier + ", groupId=" + groupId + ", startLevel="
-                + startLevel + ", type=" + type + ", version=" + version
-                + ", runModes=" + runModes + "]";
+        if ( this.bundles == null ) {
+            return "ArtifactDefinition [artifactId=" + artifactId + ", classifier="
+                    + classifier + ", groupId=" + groupId + ", startLevel="
+                    + startLevel + ", type=" + type + ", version=" + version
+                    + ", runModes=" + runModes + "]";
+        } else {
+            return "ArtifactDefinition [artifacts=" + Arrays.toString(this.bundles) + "]";
+        }
     }
 
     /**
@@ -144,16 +166,38 @@ public class ArtifactDefinition {
      *            the comma-delimited list
      */
     public void initDefaults(String commaDelimitedList) {
-        String[] values = commaDelimitedList.split(",");
-        if (values.length != 6) {
+        this.initDefaults(commaDelimitedList, ',');
+    }
+
+    /**
+     * Initialize this ArtifactDefinition with a set of default values from a
+     * delimited string. This string must have 6 items in it:
+     * [groupId],[artifactId],[version],[type],[classifier],[startLevel]
+     *
+     * @param valueList the delimited list
+     * @param delimiter the delimiter
+     */
+    public void initDefaults(final String valueList, final char delimiter) {
+        final String delString = "" + delimiter;
+        String[] values = valueList.split(delString);
+        if (values.length == 0 || values.length % 6 != 0 ) {
             throw new IllegalArgumentException(
                     String
                             .format(
-                                    "The string %s does not have the correct number of items (6).",
-                                    commaDelimitedList));
+                                    "The string %s does not have the correct number of items (a multiple of 6) separated by %s",
+                                    valueList, delString));
         }
-        initDefaults(values[0], values[1], values[2], values[3], values[4],
-                Integer.valueOf(values[5]));
+        if ( values.length == 6 ) {
+            initDefaults(values[0], values[1], values[2], values[3], values[4],
+                    Integer.valueOf(values[5]));
+        } else {
+            this.bundles = new ArtifactDefinition[values.length / 6];
+            for(int i=0; i<values.length / 6; i++) {
+                this.bundles[i] = new ArtifactDefinition();
+                this.bundles[i].initDefaults(values[i*6 + 0], values[i*6 + 1], values[i*6 + 2], values[i*6 + 3], values[i*6 + 4],
+                        Integer.valueOf(values[i*6 + 5]));
+            }
+        }
     }
 
     /**
@@ -176,54 +220,80 @@ public class ArtifactDefinition {
      */
     public void initDefaults(String groupId, String artifactId, String version,
             String type, String classifier, int startLevel) {
-        if (this.groupId == null && StringUtils.isNotEmpty(groupId)) {
-            this.groupId = groupId;
-        }
-        if (this.artifactId == null && StringUtils.isNotEmpty(artifactId)) {
-            this.artifactId = artifactId;
-        }
-        if (this.version == null && StringUtils.isNotEmpty(version)) {
-            this.version = version;
-        }
-        if (this.type == null && StringUtils.isNotEmpty(groupId)) {
-            this.type = type;
-        }
-        if (this.classifier == null && StringUtils.isNotEmpty(classifier)) {
-            this.classifier = classifier;
-        }
-        if (this.startLevel == 0) {
-            this.startLevel = startLevel;
+        if (this.bundles == null) {
+            if (this.groupId == null && StringUtils.isNotEmpty(groupId)) {
+                this.groupId = groupId;
+            }
+            if (this.artifactId == null && StringUtils.isNotEmpty(artifactId)) {
+                this.artifactId = artifactId;
+            }
+            if (this.version == null && StringUtils.isNotEmpty(version)) {
+                this.version = version;
+            }
+            if (this.type == null && StringUtils.isNotEmpty(groupId)) {
+                this.type = type;
+            }
+            if (this.classifier == null && StringUtils.isNotEmpty(classifier)) {
+                this.classifier = classifier;
+            }
+            if (this.startLevel == 0) {
+                this.startLevel = startLevel;
+            }
+        } else {
+            for (ArtifactDefinition bundle : this.bundles) {
+                bundle.initDefaults(groupId, artifactId, version, type, classifier, startLevel);
+            }
         }
     }
 
-    public Bundle toBundle() {
-        Bundle bnd = new Bundle();
-        bnd.setArtifactId(artifactId);
-        bnd.setGroupId(groupId);
-        bnd.setVersion(version);
-        if (type != null) {
-            bnd.setType(type);
+    public List<Bundle> toBundleList() {
+        ArrayList<Bundle> bundleList = new ArrayList<Bundle>();
+
+        if (bundles == null) {
+            Bundle bnd = new Bundle();
+            bnd.setArtifactId(artifactId);
+            bnd.setGroupId(groupId);
+            bnd.setVersion(version);
+            if (type != null) {
+                bnd.setType(type);
+            }
+            bnd.setClassifier(classifier);
+            bnd.setStartLevel(startLevel);
+            bundleList.add(bnd);
+        } else {
+            for (ArtifactDefinition bundle : bundles) {
+                bundleList.addAll(bundle.toBundleList());
+            }
         }
-        bnd.setClassifier(classifier);
-        bnd.setStartLevel(startLevel);
-        return bnd;
+
+        return bundleList;
     }
 
-    public Dependency toDependency(String scope) {
-        Dependency dep = new Dependency();
-        dep.setArtifactId(artifactId);
-        dep.setGroupId(groupId);
-        dep.setVersion(version);
-        if (type != null) {
-            dep.setType(type);
+    public List<Dependency> toDependencyList(String scope) {
+        ArrayList<Dependency> depList = new ArrayList<Dependency>();
+
+        if (bundles == null) {
+            Dependency dep = new Dependency();
+            dep.setArtifactId(artifactId);
+            dep.setGroupId(groupId);
+            dep.setVersion(version);
+            if (type != null) {
+                dep.setType(type);
+            }
+            dep.setClassifier(classifier);
+            dep.setScope(scope);
+            depList.add(dep);
+        } else {
+            for (ArtifactDefinition bundle : bundles) {
+                depList.addAll(bundle.toDependencyList(scope));
+            }
         }
-        dep.setClassifier(classifier);
-        dep.setScope(scope);
-        return dep;
+
+        return depList;
     }
 
-    public static Dependency toDependency(Bundle bundle, String scope) {
-        return new ArtifactDefinition(bundle, 0).toDependency(scope);
+    public static List<Dependency> toDependencyList(Bundle bundle, String scope) {
+        return new ArtifactDefinition(bundle, 0).toDependencyList(scope);
     }
 
 }

@@ -34,7 +34,8 @@ import org.apache.sling.api.resource.ValueMap;
  * The <code>MergedResourceProvider</code> is the resource provider providing
  * access to {@link MergedResource} objects.
  */
-public class MergedResourceProvider implements ResourceProvider {
+public class MergedResourceProvider
+    implements ResourceProvider {
 
     private final String mergeRootPath;
 
@@ -47,6 +48,29 @@ public class MergedResourceProvider implements ResourceProvider {
      */
     public Resource getResource(final ResourceResolver resolver, final HttpServletRequest request, final String path) {
         return getResource(resolver, path);
+    }
+
+    private static final class ParentHidingHandler {
+
+        private final String[] childrenToHideArray;
+
+        public ParentHidingHandler(final Resource parent) {
+            final ValueMap parentProps = ResourceUtil.getValueMap(parent);
+            this.childrenToHideArray = parentProps.get(MergedResourceConstants.PN_HIDE_CHILDREN, String[].class);
+        }
+
+        public boolean isHidden(final String name) {
+            boolean hidden = false;
+            if ( this.childrenToHideArray != null ) {
+                for(final String entry : childrenToHideArray) {
+                    if ( entry.equals("*") || entry.equals(name) ) {
+                        hidden = true;
+                        break;
+                    }
+                }
+            }
+            return hidden;
+        }
     }
 
     /**
@@ -64,22 +88,12 @@ public class MergedResourceProvider implements ResourceProvider {
                 final String basePath = searchPaths[i];
 
                 // Try to get the corresponding physical resource for this base path
-                final String fullPath = basePath + "/" + relativePath;
+                final String fullPath = basePath + relativePath;
 
                 // check parent for hiding
                 final Resource parent = resolver.getResource(ResourceUtil.getParent(fullPath));
                 if ( parent != null ) {
-                    boolean hidden = false;
-                    final ValueMap parentProps = ResourceUtil.getValueMap(parent);
-                    final String[] childrenToHideArray = parentProps.get(MergedResourceConstants.PN_HIDE_CHILDREN, String[].class);
-                    if ( childrenToHideArray != null ) {
-                        for(final String name : childrenToHideArray ) {
-                            if ( name.equals(holder.name) || name.equals("*") ) {
-                                hidden = true;
-                                break;
-                            }
-                        }
-                    }
+                    final boolean hidden = new ParentHidingHandler(parent).isHidden(holder.name);
                     if ( hidden ) {
                         holder.resources.clear();
                     } else {
@@ -116,34 +130,18 @@ public class MergedResourceProvider implements ResourceProvider {
         while ( index < holder.resources.size() ) {
             final Resource baseRes = holder.resources.get(index);
             // check if resource is hidden
-            boolean hidden = false;
             final ValueMap props = ResourceUtil.getValueMap(baseRes);
             holder.valueMaps.add(props);
             if ( props.get(MergedResourceConstants.PN_HIDE_RESOURCE, Boolean.FALSE) ) {
-                hidden = true;
-            }
-            if ( !hidden ) {
-                // check parent
-                final ValueMap parentProps = ResourceUtil.getValueMap(baseRes.getParent());
-                final String[] childrenToHideArray = parentProps.get(MergedResourceConstants.PN_HIDE_CHILDREN, String[].class);
-                if ( childrenToHideArray != null ) {
-                    for(final String name : childrenToHideArray ) {
-                        if ( name.equals(baseRes.getName()) || name.equals("*") ) {
-                            hidden = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if ( hidden ) {
                 // clear everything up to now
                 for(int i=0;i<=index;i++) {
                     holder.resources.remove(0);
                 }
                 holder.valueMaps.clear();
-                index = -1; // start at zero
+                index = 0; // start at zero
+            } else {
+                index++;
             }
-            index++;
         }
 
         if (!holder.resources.isEmpty()) {
@@ -168,69 +166,51 @@ public class MergedResourceProvider implements ResourceProvider {
             final String[] searchPaths = resolver.getSearchPath();
             for(int i=searchPaths.length-1; i >= 0; i--) {
                 final String basePath = searchPaths[i];
-                final Resource parentResource = resolver.getResource(basePath + "/" + relativePath);
+                final Resource parentResource = resolver.getResource(basePath + relativePath);
                 if ( parentResource != null ) {
-                    final ValueMap parentProps = ResourceUtil.getValueMap(parentResource);
-                    List<String> childrenToHide = new ArrayList<String>();
-                    boolean hideAll = false;
-                    final String[] childrenToHideArray = parentProps.get(MergedResourceConstants.PN_HIDE_CHILDREN, String[].class);
-                    if ( childrenToHideArray != null ) {
-                        for(final String name : childrenToHideArray ) {
-                            if ( name.equals("*") ) {
-                                hideAll = true;
-                            } else {
-                                childrenToHide.add(name);
+                    final ParentHidingHandler handler = new ParentHidingHandler(parentResource);
+                    for(final Resource child : parentResource.getChildren()) {
+                        final String rsrcName = child.getName();
+                        ResourceHolder holder = null;
+                        for(final ResourceHolder current : candidates) {
+                            if ( current.name.equals(rsrcName) ) {
+                                holder = current;
+                                break;
                             }
                         }
-                    }
-                    if ( hideAll ) {
-                        candidates.clear();
-                    } else {
-                        for(final Resource child : parentResource.getChildren()) {
-                            final String rsrcName = child.getName();
-                            ResourceHolder holder = null;
-                            for(final ResourceHolder current : candidates) {
-                                if ( current.name.equals(rsrcName) ) {
-                                    holder = current;
+                        if ( holder == null ) {
+                            holder = new ResourceHolder(rsrcName);
+                            candidates.add(holder);
+                        }
+                        holder.resources.add(child);
+
+                        // Check if children need reordering
+                        int orderBeforeIndex = -1;
+                        final ValueMap vm = ResourceUtil.getValueMap(child);
+                        final String orderBefore = vm.get(MergedResourceConstants.PN_ORDER_BEFORE, String.class);
+                        if (orderBefore != null && !orderBefore.equals(rsrcName)) {
+                            // search entry
+                            int index = 0;
+                            while (index < candidates.size()) {
+                                final ResourceHolder current = candidates.get(index);
+                                if ( current.name.equals(orderBefore) ) {
+                                    orderBeforeIndex = index;
                                     break;
                                 }
-                            }
-                            if ( holder == null ) {
-                                holder = new ResourceHolder(rsrcName);
-                                candidates.add(holder);
-                            }
-                            holder.resources.add(child);
-
-                            // Check if children need reordering
-                            int orderBeforeIndex = -1;
-                            final ValueMap vm = ResourceUtil.getValueMap(child);
-                            final String orderBefore = vm.get(MergedResourceConstants.PN_ORDER_BEFORE, String.class);
-                            if (orderBefore != null && !orderBefore.equals(rsrcName)) {
-                                // search entry
-                                int index = 0;
-                                while (index < candidates.size()) {
-                                    final ResourceHolder current = candidates.get(index);
-                                    if ( current.name.equals(orderBefore) ) {
-                                        orderBeforeIndex = index;
-                                        break;
-                                    }
-                                    index++;
-                                }
-                            }
-
-                            if (orderBeforeIndex > -1) {
-                                candidates.add(orderBeforeIndex, holder);
-                                candidates.remove(candidates.size() - 1);
+                                index++;
                             }
                         }
-                        if ( childrenToHide.size() > 0 ) {
-                            final Iterator<ResourceHolder> iter = candidates.iterator();
-                            while ( iter.hasNext() ) {
-                                final ResourceHolder holder = iter.next();
-                                if ( childrenToHide.contains(holder.name) ) {
-                                    iter.remove();
-                                }
-                            }
+
+                        if (orderBeforeIndex > -1) {
+                            candidates.add(orderBeforeIndex, holder);
+                            candidates.remove(candidates.size() - 1);
+                        }
+                    }
+                    final Iterator<ResourceHolder> iter = candidates.iterator();
+                    while ( iter.hasNext() ) {
+                        final ResourceHolder holder = iter.next();
+                        if ( handler.isHidden(holder.name) ) {
+                            iter.remove();
                         }
                     }
                 }

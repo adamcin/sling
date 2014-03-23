@@ -74,6 +74,7 @@ public class SlingServletResolverTest {
 
     @Before public void setUp() throws Exception {
         mockResourceResolver = new MockResourceResolver() {
+            @Override
             public void close() {
                 // nothing to do;
             }
@@ -81,6 +82,16 @@ public class SlingServletResolverTest {
             @Override
             public <AdapterType> AdapterType adaptTo(Class<AdapterType> type) {
                 return null;
+            }
+
+            @Override
+            public ResourceResolver clone(Map<String, Object> authenticationInfo)
+                    throws LoginException {
+                throw new LoginException("MockResourceResolver can't be cloned - excepted for this test!");
+            }
+
+            public void refresh() {
+                // nothing to do
             }
         };
         mockResourceResolver.setSearchPath("/");
@@ -101,16 +112,9 @@ public class SlingServletResolverTest {
         };
 
         servlet = new MockSlingRequestHandlerServlet();
-        servletResolver = new SlingServletResolver() {
+        servletResolver = new SlingServletResolver();
 
-            @Override
-            String getWorkspaceName(SlingHttpServletRequest request) {
-                return getRequestWorkspaceName();
-            }
-
-        };
-
-        Class<?> resolverClass = servletResolver.getClass().getSuperclass();
+        Class<?> resolverClass = servletResolver.getClass();
 
         // set resource resolver factory
         final Field resolverField = resolverClass.getDeclaredField("resourceResolverFactory");
@@ -123,7 +127,7 @@ public class SlingServletResolverTest {
             public ServiceRegistration registerService(String s, Object o, Dictionary dictionary) {
                 return null;
             }
-            
+
             @Override
             public ServiceRegistration registerService(String[] strings, Object o, Dictionary dictionary) {
                 return null;

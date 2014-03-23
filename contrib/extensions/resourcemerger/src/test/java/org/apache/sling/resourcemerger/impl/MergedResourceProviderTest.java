@@ -20,6 +20,7 @@ package org.apache.sling.resourcemerger.impl;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ import org.apache.sling.api.resource.ResourceResolverFactory;
 import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.testing.resourceresolver.MockHelper;
 import org.apache.sling.testing.resourceresolver.MockResourceResolverFactory;
+import org.apache.sling.testing.resourceresolver.MockResourceResolverFactoryOptions;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -42,7 +44,9 @@ public class MergedResourceProviderTest {
     private MergedResourceProvider provider;
 
     @Before public void setup() throws Exception {
-        final ResourceResolverFactory factory = new MockResourceResolverFactory();
+        final MockResourceResolverFactoryOptions options = new MockResourceResolverFactoryOptions();
+        options.setSearchPaths(new String[] {"/apps/", "/libs/"});
+        final ResourceResolverFactory factory = new MockResourceResolverFactory(options);
         this.resolver = factory.getAdministrativeResourceResolver(null);
         MockHelper.create(this.resolver).resource("/apps")
                                           .resource("a").p(MergedResourceConstants.PN_HIDE_CHILDREN, new String[] {"Z", "x", "y"})
@@ -68,6 +72,27 @@ public class MergedResourceProviderTest {
                                         .commit();
 
         this.provider = new MergedResourceProvider("/merged");
+    }
+
+    @Test public void testHideChildren() {
+        // check preconditions in libs and apps
+        assertNotNull(this.resolver.getResource("/libs/a/Z"));
+        assertNull(this.resolver.getResource("/libs/a/X"));
+        assertNotNull(this.resolver.getResource("/libs/a/Y"));
+        assertNull(this.resolver.getResource("/libs/a/x"));
+        assertNull(this.resolver.getResource("/libs/a/y"));
+        assertNull(this.resolver.getResource("/apps/a/Z"));
+        assertNotNull(this.resolver.getResource("/apps/a/X"));
+        assertNull(this.resolver.getResource("/apps/a/Y"));
+        assertNull(this.resolver.getResource("/apps/a/x"));
+        assertNull(this.resolver.getResource("/apps/a/y"));
+
+        // now do the real checks
+        assertNull(this.provider.getResource(this.resolver, "/merged/a/Z"));
+        assertNotNull(this.provider.getResource(this.resolver, "/merged/a/Y"));
+        assertNotNull(this.provider.getResource(this.resolver, "/merged/a/X"));
+        assertNull(this.provider.getResource(this.resolver, "/merged/a/x"));
+        assertNull(this.provider.getResource(this.resolver, "/merged/a/y"));
     }
 
     @Test public void testListChildren() {

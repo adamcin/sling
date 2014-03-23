@@ -55,4 +55,9 @@ public interface TopologyConnectorClientInformation {
     /** the Content-Encoding of the last response **/
     String getLastResponseEncoding();
 
+    /** the unix-millis when the last heartbeat was sent **/
+    long getLastHeartbeatSent();
+
+    /** the seconds until the next heartbeat is due **/
+    int getNextHeartbeatDue();
 }

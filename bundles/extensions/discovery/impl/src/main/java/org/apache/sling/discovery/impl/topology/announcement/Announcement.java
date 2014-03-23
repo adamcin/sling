@@ -19,7 +19,6 @@
 package org.apache.sling.discovery.impl.topology.announcement;
 
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -36,7 +35,6 @@ import org.apache.sling.commons.json.JSONException;
 import org.apache.sling.commons.json.JSONObject;
 import org.apache.sling.discovery.ClusterView;
 import org.apache.sling.discovery.InstanceDescription;
-import org.apache.sling.discovery.impl.Config;
 import org.apache.sling.discovery.impl.common.DefaultClusterViewImpl;
 import org.apache.sling.discovery.impl.common.DefaultInstanceDescriptionImpl;
 
@@ -66,9 +64,6 @@ public class Announcement {
     /** the incoming instances **/
     private List<Announcement> incomings = new LinkedList<Announcement>();
 
-    /** time this announcement was received **/
-    private long created = System.currentTimeMillis();
-
     /** whether or not this annoucement was inherited (response of a connect) or incoming (the connect) **/
     private boolean inherited = false;
 
@@ -77,6 +72,12 @@ public class Announcement {
 
     /** whether or not this announcement represents a loop detected in the topology connectors **/
     private boolean loop = false;
+
+    /** SLING-3382: Sets the backoffInterval which the connector servlets passes back to the client to use as the next heartbeatInterval **/
+    private long backoffInterval = -1;
+
+    /** SLING-3382: the resetBackoff flag is sent from client to server and indicates that the client wants to start from (backoff) scratch **/
+    private boolean resetBackoff = false;
 
     public Announcement(final String ownerId) {
         this(ownerId, PROTOCOL_VERSION);
@@ -103,7 +104,6 @@ public class Announcement {
         return "Announcement[ownerId="+getOwnerId()+
                 ", protocolVersion="+protocolVersion+
                 ", inherited="+isInherited()+
-                ", created="+new Date(created)+
                 ", loop="+loop+
                 ", incomings="+incomingList+"]";
     }
@@ -132,6 +132,16 @@ public class Announcement {
             if (instances==null || instances.size()==0) {
                 return false;
             }
+            boolean isOwnerMemberOfLocalCluster = false;
+            for (Iterator<InstanceDescription> it = instances.iterator(); it.hasNext();) {
+                InstanceDescription instanceDescription = it.next();
+                if (instanceDescription.getSlingId().equals(ownerId)) {
+                    isOwnerMemberOfLocalCluster = true;
+                }
+            }
+            if (!isOwnerMemberOfLocalCluster) {
+                return false;
+            }
         } catch(Exception ise) {
             return false;
         }
@@ -151,6 +161,26 @@ public class Announcement {
     /** Sets the loop falg - set true when this announcement should represent a loop detected in the topology connectors **/
     public void setLoop(final boolean loop) {
         this.loop = loop;
+    }
+    
+    /** Sets the backoffInterval which the connector servlets passes back to the client to use as the next heartbeatInterval **/
+    public void setBackoffInterval(long backoffInterval) {
+        this.backoffInterval = backoffInterval;
+    }
+    
+    /** Gets the backoffInterval which the connector servlets passes back to the client to use as the next heartbeatInterval **/
+    public long getBackoffInterval() {
+        return this.backoffInterval;
+    }
+    
+    /** sets the resetBackoff flag **/
+    public void setResetBackoff(boolean resetBackoff) {
+        this.resetBackoff = resetBackoff;
+    }
+    
+    /** gets the resetBackoff flag **/
+    public boolean getResetBackoff() {
+        return resetBackoff;
     }
 
     /** Returns the loop flag - set when this announcement represents a loop detected in the topology connectors **/
@@ -182,23 +212,21 @@ public class Announcement {
         return ownerId;
     }
 
-    /** Checks whether this announcement has expired or not **/
-    public boolean hasExpired(final Config config) {
-        final long now = System.currentTimeMillis();
-        final long diff = now - created;
-        return diff > 1000 * config.getHeartbeatTimeout();
-    }
-    
-    public Date getCreated() {
-        return new Date(created);
-    }
-
     /** Convert this announcement into a json object **/
     public JSONObject asJSONObject() throws JSONException {
+        return asJSONObject(false);
+    }
+    
+    /** Convert this announcement into a json object **/
+    private JSONObject asJSONObject(boolean filterTimes) throws JSONException {
         JSONObject announcement = new JSONObject();
         announcement.put("ownerId", ownerId);
         announcement.put("protocolVersion", protocolVersion);
-        announcement.put("created", created);
+        // SLING-3389: leaving the 'created' property in the announcement
+        // for backwards compatibility!
+        if (!filterTimes) {
+            announcement.put("created", System.currentTimeMillis());
+        }
         announcement.put("inherited", inherited);
         if (loop) {
             announcement.put("loop", loop);
@@ -209,10 +237,16 @@ public class Announcement {
         if (localCluster!=null) {
             announcement.put("localClusterView", asJSON(localCluster));
         }
+        if (!filterTimes && backoffInterval>0) {
+            announcement.put("backoffInterval", backoffInterval);
+        }
+        if (resetBackoff) {
+            announcement.put("resetBackoff", resetBackoff);
+        }
         JSONArray incomingAnnouncements = new JSONArray();
         for (Iterator<Announcement> it = incomings.iterator(); it.hasNext();) {
             Announcement incoming = it.next();
-            incomingAnnouncements.put(incoming.asJSONObject());
+            incomingAnnouncements.put(incoming.asJSONObject(filterTimes));
         }
         announcement.put("topologyAnnouncements", incomingAnnouncements);
         return announcement;
@@ -230,6 +264,14 @@ public class Announcement {
             protocolVersion = announcement.getInt("protocolVersion");
         }
         final Announcement result = new Announcement(ownerId, protocolVersion);
+        if (announcement.has("backoffInterval")) {
+            long backoffInterval = announcement.getLong("backoffInterval");
+            result.backoffInterval = backoffInterval;
+        }
+        if (announcement.has("resetBackoff")) {
+            boolean resetBackoff = announcement.getBoolean("resetBackoff");
+            result.resetBackoff = resetBackoff;
+        }
         if (announcement.has("loop") && announcement.getBoolean("loop")) {
             result.setLoop(true);
             return result;
@@ -240,7 +282,6 @@ public class Announcement {
         final JSONArray subAnnouncements = announcement
                 .getJSONArray("topologyAnnouncements");
 
-        final Long created = announcement.getLong("created");
         if (announcement.has("inherited")) {
             final Boolean inherited = announcement.getBoolean("inherited");
             result.inherited = inherited;
@@ -249,7 +290,6 @@ public class Announcement {
             String serverInfo = announcement.getString("serverInfo");
             result.serverInfo = serverInfo;
         }
-        result.created = created;
         result.setLocalCluster(localClusterView);
         for (int i = 0; i < subAnnouncements.length(); i++) {
             String subAnnouncementJSON = subAnnouncements.getString(i);
@@ -370,8 +410,13 @@ public class Announcement {
     public void persistTo(Resource announcementsResource)
             throws PersistenceException, JSONException {
         Resource announcementChildResource = announcementsResource.getChild(getPrimaryKey());
-        // SLING-2967 : when persisting, reset 'created' to the current time
-        resetCreatedTime();
+        
+        // SLING-2967 used to introduce 'resetting the created time' here
+        // in order to become machine-clock independent.
+        // With introduction of SLING-3389, where we dont store any
+        // announcement-heartbeat-dates anymore at all, this resetting here
+        // became unnecessary.
+        
         final String announcementJson = asJSON();
 		if (announcementChildResource==null) {
             final ResourceResolver resourceResolver = announcementsResource.getResourceResolver();
@@ -383,23 +428,6 @@ public class Announcement {
             announcementChildMap.put("topologyAnnouncement", announcementJson);
         }
     }
-
-    /**
-     * SLING-2967 : Reset the field 'created' to the current local machine time
-     */
-    private void resetCreatedTime() {
-        created = System.currentTimeMillis();
-		if (incomings!=null) {
-			// also loop through the incoming announcements,
-			// as those contain created times of maybe even other
-			// machines
-			final Iterator<Announcement> it = incomings.iterator();
-			while(it.hasNext()) {
-				Announcement incomingAnnouncement = it.next();
-				incomingAnnouncement.resetCreatedTime();
-			}
-		}
-	}
 
 	/**
      * Remove all announcements that match the given owner Id
@@ -414,6 +442,18 @@ public class Announcement {
             }
 
         }
+    }
+
+    /**
+     * Compare this Announcement with another one, ignoring the 'created'
+     * property - which gets added to the JSON object automatically due
+     * to SLING-3389 wire-backwards-compatibility - and backoffInterval
+     * introduced as part of SLING-3382
+     */
+    public boolean correspondsTo(Announcement announcement) throws JSONException {
+        final JSONObject myJson = asJSONObject(true);
+        final JSONObject otherJson = announcement.asJSONObject(true);
+        return myJson.toString().equals(otherJson.toString());
     }
 
 }
