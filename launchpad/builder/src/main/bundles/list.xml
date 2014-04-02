@@ -161,6 +161,11 @@
             <artifactId>org.apache.sling.event</artifactId>
             <version>3.3.6</version>
         </bundle>
+        <bundle>
+            <groupId>net.adamcin.httpsig</groupId>
+            <artifactId>net.adamcin.httpsig.osgi</artifactId>
+            <version>1.0.6</version>
+        </bundle>
 
         <bundle>
             <groupId>org.apache.sling</groupId>
