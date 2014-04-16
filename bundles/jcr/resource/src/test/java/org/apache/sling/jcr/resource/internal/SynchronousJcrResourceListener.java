@@ -16,6 +16,8 @@
  */
 package org.apache.sling.jcr.resource.internal;
 
+import java.io.IOException;
+
 import javax.jcr.RepositoryException;
 
 import junitx.util.PrivateAccessor;
@@ -23,7 +25,6 @@ import junitx.util.PrivateAccessor;
 import org.apache.jackrabbit.core.observation.SynchronousEventListener;
 import org.apache.sling.api.resource.LoginException;
 import org.apache.sling.api.resource.ResourceResolver;
-import org.apache.sling.api.resource.ResourceResolverFactory;
 import org.apache.sling.jcr.api.SlingRepository;
 import org.osgi.framework.BundleContext;
 import org.osgi.util.tracker.ServiceTracker;
@@ -38,18 +39,22 @@ import org.osgi.util.tracker.ServiceTracker;
 public class SynchronousJcrResourceListener extends JcrResourceListener implements SynchronousEventListener {
 
     public SynchronousJcrResourceListener(
-            ResourceResolverFactory factory,
-            SlingRepository repo,
-            BundleContext bundleContext,
+            final SlingRepository repo,
+            final BundleContext bundleContext,
             final ResourceResolver resolver,
             final ServiceTracker tracker)
             throws LoginException, RepositoryException, NoSuchFieldException {
-        super("/", null, repo, bundleContext);
-        PrivateAccessor.setField(this, "resourceResolver", resolver);
-        PrivateAccessor.setField(this, "eventAdminTracker", tracker);
+        super("/", new ObservationListenerSupport(bundleContext, repo));
+        PrivateAccessor.setField(this.support, "resourceResolver", resolver);
+        PrivateAccessor.setField(this.support, "eventAdminTracker", tracker);
     }
 
     public void dispose() {
-        this.deactivate();
+        try {
+            this.close();
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
     }
 }

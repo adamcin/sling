@@ -16,26 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.sling.resourceresolver.impl.helper;
 
-/**
- * The <code>FeaturesHolder</code> interface is an API to provide dynamic
- * access to the Features service without having to hold on to the
- * Features instance directly.
- */
-public interface FeaturesHolder {
+@Version("2.2")
+package org.apache.sling.jcr.resource;
 
-    /** This holder always returns null */
-    FeaturesHolder EMPTY_HOLDER = new FeaturesHolder() {
+import aQute.bnd.annotation.Version;
 
-        public Object getFeatures() {
-            return null;
-        }
-    };
-
-    /**
-     * @return The {@code Features} service if available, {@code null} otherwise
-     */
-    public Object getFeatures();
-
-}

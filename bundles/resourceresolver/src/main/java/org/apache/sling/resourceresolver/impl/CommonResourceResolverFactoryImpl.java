@@ -18,7 +18,10 @@
  */
 package org.apache.sling.resourceresolver.impl;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.collections.BidiMap;
@@ -100,7 +103,7 @@ public class CommonResourceResolverFactoryImpl implements ResourceResolverFactor
                     final boolean isAdmin)
     throws LoginException {
         // create context
-        final ResourceResolverContext ctx = new ResourceResolverContext(isAdmin, authenticationInfo, this.activator.getResourceAccessSecurityTracker(), this.activator);
+        final ResourceResolverContext ctx = new ResourceResolverContext(isAdmin, authenticationInfo, this.activator.getResourceAccessSecurityTracker());
 
         // login
         this.activator.getRootProviderEntry().loginToRequiredFactories(ctx);
@@ -192,8 +195,29 @@ public class CommonResourceResolverFactoryImpl implements ResourceResolverFactor
     public boolean isVanityPathEnabled() {
         return this.activator.isVanityPathEnabled();
     }
-    
+
     public boolean isOptimizeAliasResolutionEnabled() {
         return this.activator.isOptimizeAliasResolutionEnabled();
+    }
+
+    public List<VanityPathConfig> getVanityPathConfig() {
+        final String[] includes = this.activator.getVanityPathWhiteList();
+        final String[] excludes = this.activator.getVanityPathBlackList();
+        if ( includes == null && excludes == null ) {
+            return null;
+        }
+        final List<VanityPathConfig> configs = new ArrayList<VanityPathConfig>();
+        if ( includes != null ) {
+            for(final String val : includes) {
+                configs.add(new VanityPathConfig(val, false));
+            }
+        }
+        if ( excludes != null ) {
+            for(final String val : excludes) {
+                configs.add(new VanityPathConfig(val, true));
+            }
+        }
+        Collections.sort(configs);
+        return configs;
     }
 }

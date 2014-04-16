@@ -23,7 +23,7 @@
     <parent>
         <groupId>org.apache.sling</groupId>
         <artifactId>sling</artifactId>
-        <version>18</version>
+        <version>19</version>
         <relativePath>../../parent/pom.xml</relativePath>
     </parent>
 
@@ -162,6 +162,11 @@
                     <defaultBundleList>
                         <version>${project.version}</version>
                     </defaultBundleList>
+                    <jarWebSupport>
+                        <groupId>org.apache.felix</groupId>
+                        <artifactId>org.apache.felix.http.jetty</artifactId>
+                        <version>2.2.2</version>
+                    </jarWebSupport>
                 </configuration>
                 <dependencies>
                     <dependency>

@@ -50,6 +50,7 @@ import org.apache.sling.api.resource.ResourceUtil;
 import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.resourceresolver.impl.ResourceResolverFactoryImpl;
 import org.apache.sling.resourceresolver.impl.ResourceResolverImpl;
+import org.apache.sling.resourceresolver.impl.mapping.MapConfigurationProvider.VanityPathConfig;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
 import org.osgi.framework.ServiceRegistration;
@@ -109,8 +110,10 @@ public class MapEntries implements EventHandler {
     private final ReentrantLock initializing = new ReentrantLock();
 
     private final boolean enabledVanityPaths;
-    
+
     private final boolean enableOptimizeAliasResolution;
+
+    private final List<VanityPathConfig> vanityPathConfig;
 
     @SuppressWarnings("unchecked")
     private MapEntries() {
@@ -126,6 +129,7 @@ public class MapEntries implements EventHandler {
         this.eventAdmin = null;
         this.enabledVanityPaths = true;
         this.enableOptimizeAliasResolution = true;
+        this.vanityPathConfig = null;
     }
 
     @SuppressWarnings("unchecked")
@@ -135,6 +139,7 @@ public class MapEntries implements EventHandler {
         this.factory = factory;
         this.mapRoot = factory.getMapRoot();
         this.enabledVanityPaths = factory.isVanityPathEnabled();
+        this.vanityPathConfig = factory.getVanityPathConfig();
         this.enableOptimizeAliasResolution = factory.isOptimizeAliasResolutionEnabled();
         this.eventAdmin = eventAdmin;
 
@@ -220,17 +225,17 @@ public class MapEntries implements EventHandler {
             // sort global list and add to map
             Collections.sort(globalResolveMap);
             newResolveMapsMap.put(GLOBAL_LIST_KEY, globalResolveMap);
-            
+
             //optimization made in SLING-2521
             if (enableOptimizeAliasResolution){
                 final Map<String, Map<String, String>> aliasMap = this.loadAliases(resolver);
                 this.aliasMap = makeUnmodifiableMap(aliasMap);
-            }            
+            }
 
             this.vanityTargets = Collections.unmodifiableCollection(vanityTargets);
             this.resolveMapsMap = Collections.unmodifiableMap(newResolveMapsMap);
             this.mapMaps = Collections.unmodifiableSet(new TreeSet<MapEntry>(newMapMaps.values()));
- 
+
             sendChangeEvent();
 
         } catch (final Exception e) {
@@ -243,11 +248,11 @@ public class MapEntries implements EventHandler {
 
         }
     }
-    
+
     public boolean isOptimizeAliasResolutionEnabled(){
         return this.enableOptimizeAliasResolution;
     }
-    
+
 
     private <K1, K2, V> Map<K1, Map<K2, V>> makeUnmodifiableMap(final Map<K1, Map<K2, V>> map) {
         final Map<K1, Map<K2, V>> newMap = new HashMap<K1, Map<K2, V>>();
@@ -585,6 +590,20 @@ public class MapEntries implements EventHandler {
                 continue;
             }
 
+            // check whitelist
+            if ( this.vanityPathConfig != null ) {
+                boolean allowed = false;
+                for(final VanityPathConfig config : this.vanityPathConfig) {
+                    if ( resource.getPath().startsWith(config.prefix) ) {
+                        allowed = !config.isExclude;
+                        break;
+                    }
+                }
+                if ( !allowed ) {
+                    log.debug("loadVanityPaths: Ignoring as not in white list {}", resource);
+                    continue;
+                }
+            }
             // require properties
             final ValueMap props = resource.adaptTo(ValueMap.class);
             if (props == null) {
